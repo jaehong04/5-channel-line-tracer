@@ -4,7 +4,7 @@
 const int sensorPins[5] = {A1, A2, A3, A4, A5};
 int sensorValues[5];
 
-#BASE_SPEED 160 정의
+#BASE_SPEED 180 정의
 #TURN_SPEED 200 정의
 #TURN_Duration 정의 150
 
