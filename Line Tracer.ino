@@ -5,10 +5,10 @@ const int sensorPins[5] = {A1, A2, A3, A4, A5};
 int sensorValues[5];
 
 // --- 모터 속도 및 회전 관련 상수 ---
-#define BASE_SPEED 240 // 기본 속도
-#define TURN_SPEED 250 // 회전 속도
+#define BASE_SPEED 255 // 기본 속도
+#define TURN_SPEED 160 // 회전 속도
 #define CENTER_SENSOR_IDX 2 // 중앙 센서 인덱스 (A3)
-#define CENTER_THRESHOLD 500 // 센서 임계값 (환경에 맞게 조정)
+#define CENTER_THRESHOLD 300 // 센서 임계값 (환경에 맞게 조정)
 #define MAX_TURN_TIME 500 // 회전 최대 시간(ms)
 
 AF_DCMotor motor_L(2); // 왼쪽 모터 (M2)
