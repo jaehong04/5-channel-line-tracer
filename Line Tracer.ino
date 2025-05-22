@@ -5,8 +5,8 @@ const int sensorPins[5] = {A1, A2, A3, A4, A5};
 int sensorValues[5];
 
 // --- 모터 속도 및 회전 관련 상수 ---
-#define BASE_SPEED 180 // 기본 속도
-#define TURN_SPEED 190 // 회전 속도
+#define BASE_SPEED 240 // 기본 속도
+#define TURN_SPEED 250 // 회전 속도
 #define CENTER_SENSOR_IDX 2 // 중앙 센서 인덱스 (A3)
 #define CENTER_THRESHOLD 500 // 센서 임계값 (환경에 맞게 조정)
 #define MAX_TURN_TIME 500 // 회전 최대 시간(ms)
@@ -122,29 +122,41 @@ motor_R.run(RELEASE);
 }
 
 void loop() {
-readSensors();
+    readSensors();
 
-// 센서 배열: [A1, A2, A3, A4, A5]
-// A3(2): 중앙, A2(1): 좌, A4(3): 우, A1(0): 극좌, A5(4): 극우
+    // 센서별 가중치
+    int weights[5] = {-2, -1, 0, 1, 2};
+    int sum = 0;
+    int count = 0;
 
-if(sensorValues[2] == 1) { // 중앙 센서 감지: 직진
-moveForward();
-}
-else if(sensorValues[1] == 1) { // 좌측 센서 감지: 좌회전
-turnLeft();
-}
-else if(sensorValues[3] == 1) { // 우측 센서 감지: 우회전
-turnRight();
-}
-else if(sensorValues[0] == 1) { // 극좌 센서 감지: 급좌회전
-sharpLeft();
-}
-else if(sensorValues[4] == 1) { // 극우 센서 감지: 급우회전
-sharpRight();
-}
-else { // 모두 미감지: 정지
-stopMotors();
-}
+    for(int i = 0; i < 5; i++) {
+        if(sensorValues[i] == 1) {
+            sum += weights[i];
+            count++;
+        }
+    }
 
-delay(20); // 센서 polling 속도 조절
+    if(count == 0) {
+        // 모두 미감지: 정지
+        stopMotors();
+    } else {
+        float avg = (float)sum / count;
+        if(avg < -1.5) {
+            // 극좌 방향 (급좌회전)
+            sharpLeft();
+        } else if(avg < -0.5) {
+            // 좌 방향 (좌회전)
+            turnLeft();
+        } else if(avg > 1.5) {
+            // 극우 방향 (급우회전)
+            sharpRight();
+        } else if(avg > 0.5) {
+            // 우 방향 (우회전)
+            turnRight();
+        } else {
+            // 중앙 (직진)
+            moveForward();
+        }
+    }
+    delay(20);
 }
