@@ -7,12 +7,12 @@ int sensorValues[5];
 
 // --- 모터 속도 및 회전 관련 상수 ---
 #define BASE_SPEED 255 // 기본 속도
-#define TURN_SPEED 160 // 회전 속도
+#define TURN_SPEED 240 // 회전 속도
 #define CENTER_SENSOR_IDX 2 // 중앙 센서 인덱스 (A3)
-#define CENTER_THRESHOLD 300 // 센서 임계값 (환경에 맞게 조정)
-#define MAX_TURN_TIME 500 // 회전 최대 시간(ms)
-#define SHARP_TURN_TIME 200 // 급회전 최대 시간(ms)
-#define NORMAL_TURN_TIME 300 // 일반 회전 최대 시간(ms)
+#define CENTER_THRESHOLD 520 // 센서 임계값 (환경에 맞게 조정)
+#define MAX_TURN_TIME 100 // 회전 최대 시간(ms)
+#define SHARP_TURN_TIME 30 // 급회전 최대 시간(ms)
+#define NORMAL_TURN_TIME 80 // 일반 회전 최대 시간(ms)
 
 AF_DCMotor motor_L(2); // 왼쪽 모터 (M2)
 AF_DCMotor motor_R(3); // 오른쪽 모터 (M3)             
