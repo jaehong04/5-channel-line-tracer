@@ -1,29 +1,29 @@
 #include <AFMotor.h>
+#include <avdweb_AnalogReadFast.h>
 
 // --- 센서 핀 (A1~A5) ---
 const int sensorPins[5] = {A1, A2, A3, A4, A5};
 int sensorValues[5];
 
 // --- 모터 속도 및 회전 관련 상수 ---
-#define BASE_SPEED_L 255   // 왼쪽 모터 기준 속도
-#define BASE_SPEED_R 245   // 오른쪽 모터 기준 속도
-#define TURN_SPEED_L 160   // 왼쪽 모터 회전 속도
-#define TURN_SPEED_R 160   // 오른쪽 모터 회전 속도
-
+#define BASE_SPEED 255 // 기본 속도
+#define TURN_SPEED 160 // 회전 속도
 #define CENTER_SENSOR_IDX 2 // 중앙 센서 인덱스 (A3)
 #define CENTER_THRESHOLD 300 // 센서 임계값 (환경에 맞게 조정)
 #define MAX_TURN_TIME 500 // 회전 최대 시간(ms)
+#define SHARP_TURN_TIME 200 // 급회전 최대 시간(ms)
+#define NORMAL_TURN_TIME 300 // 일반 회전 최대 시간(ms)
 
 AF_DCMotor motor_L(2); // 왼쪽 모터 (M2)
-AF_DCMotor motor_R(3); // 오른쪽 모터 (M3)
+AF_DCMotor motor_R(3); // 오른쪽 모터 (M3)             
 
 void setup() {
-    Serial.begin(9600);
+    Serial.begin(115200);
     for (int i = 0; i < 5; i++) {
         pinMode(sensorPins[i], INPUT);
     }
-    motor_L.setSpeed(BASE_SPEED_L);
-    motor_R.setSpeed(BASE_SPEED_R);
+    motor_L.setSpeed(BASE_SPEED);
+    motor_R.setSpeed(BASE_SPEED);
     motor_L.run(RELEASE);
     motor_R.run(RELEASE);
     delay(500);
@@ -32,36 +32,30 @@ void setup() {
 // --- 센서값 읽기 및 출력 (아날로그 값 기반, 임계값 적용) ---
 void readSensors() {
     for (int i = 0; i < 5; i++) {
-        int analogValue = analogRead(sensorPins[i]);
-        sensorValues[i] = (analogValue > CENTER_THRESHOLD) ? 1 : 0; // 임계값 초과 시 1, 아니면 0
-        Serial.print(sensorValues[i]);
-        Serial.print("(");
-        Serial.print(analogValue);
-        Serial.print(") ");
+        int analogValue = analogReadFast(sensorPins[i]);
+        sensorValues[i] = (analogValue > CENTER_THRESHOLD) ? 1 : 0;
     }
-    Serial.println();
 }
 
 // --- 전진: 두 모터 모두 앞으로 ---
 void moveForward() {
-    motor_L.setSpeed(BASE_SPEED_L);
-    motor_R.setSpeed(BASE_SPEED_R);
+    motor_L.setSpeed(BASE_SPEED);
+    motor_R.setSpeed(BASE_SPEED);
     motor_L.run(FORWARD);
     motor_R.run(FORWARD);
 }
 
 // --- 좌회전: 왼쪽 모터 후진, 오른쪽 모터 전진 (중앙 센서가 라인 감지 시 즉시 정지) ---
 void turnLeft() {
-    motor_L.setSpeed(TURN_SPEED_L);
-    motor_R.setSpeed(TURN_SPEED_R);
+    motor_L.setSpeed(TURN_SPEED);
+    motor_R.setSpeed(TURN_SPEED);
     motor_L.run(BACKWARD);
     motor_R.run(FORWARD);
 
     unsigned long startTime = millis();
-    while (millis() - startTime < MAX_TURN_TIME) {
-        int centerSensor = analogRead(sensorPins[CENTER_SENSOR_IDX]);
-        if (centerSensor > CENTER_THRESHOLD) break; // 중앙 센서가 라인 감지 시 종료
-        delay(5);
+    while (millis() - startTime < NORMAL_TURN_TIME) {
+        int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
+        if (centerSensor > CENTER_THRESHOLD) break;
     }
     motor_L.run(RELEASE);
     motor_R.run(RELEASE);
@@ -69,16 +63,15 @@ void turnLeft() {
 
 // --- 우회전: 왼쪽 모터 전진, 오른쪽 모터 후진 (중앙 센서가 라인 감지 시 즉시 정지) ---
 void turnRight() {
-    motor_L.setSpeed(TURN_SPEED_L);
-    motor_R.setSpeed(TURN_SPEED_R);
+    motor_L.setSpeed(TURN_SPEED);
+    motor_R.setSpeed(TURN_SPEED);
     motor_L.run(FORWARD);
     motor_R.run(BACKWARD);
 
     unsigned long startTime = millis();
-    while (millis() - startTime < MAX_TURN_TIME) {
-        int centerSensor = analogRead(sensorPins[CENTER_SENSOR_IDX]);
+    while (millis() - startTime < NORMAL_TURN_TIME) {
+        int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
         if (centerSensor > CENTER_THRESHOLD) break;
-        delay(5);
     }
     motor_L.run(RELEASE);
     motor_R.run(RELEASE);
@@ -87,15 +80,14 @@ void turnRight() {
 // --- 급좌회전: 왼쪽 모터 정지, 오른쪽 모터 전진 (중앙 센서가 라인 감지 시 즉시 정지) ---
 void sharpLeft() {
     motor_L.setSpeed(0);
-    motor_R.setSpeed(TURN_SPEED_R);
+    motor_R.setSpeed(TURN_SPEED);
     motor_L.run(RELEASE);
     motor_R.run(FORWARD);
 
     unsigned long startTime = millis();
-    while (millis() - startTime < MAX_TURN_TIME) {
-        int centerSensor = analogRead(sensorPins[CENTER_SENSOR_IDX]);
+    while (millis() - startTime < SHARP_TURN_TIME) {
+        int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
         if (centerSensor > CENTER_THRESHOLD) break;
-        delay(5);
     }
     motor_L.run(RELEASE);
     motor_R.run(RELEASE);
@@ -103,16 +95,15 @@ void sharpLeft() {
 
 // --- 급우회전: 왼쪽 모터 전진, 오른쪽 모터 정지 (중앙 센서가 라인 감지 시 즉시 정지) ---
 void sharpRight() {
-    motor_L.setSpeed(TURN_SPEED_L);
+    motor_L.setSpeed(TURN_SPEED);
     motor_R.setSpeed(0);
     motor_L.run(FORWARD);
     motor_R.run(RELEASE);
 
     unsigned long startTime = millis();
-    while (millis() - startTime < MAX_TURN_TIME) {
-        int centerSensor = analogRead(sensorPins[CENTER_SENSOR_IDX]);
+    while (millis() - startTime < SHARP_TURN_TIME) {
+        int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
         if (centerSensor > CENTER_THRESHOLD) break;
-        delay(5);
     }
     motor_L.run(RELEASE);
     motor_R.run(RELEASE);
@@ -161,5 +152,5 @@ void loop() {
             moveForward();
         }
     }
-    delay(10);
+    delay(1); // 메인 루프 지연 시간 최소화
 }
