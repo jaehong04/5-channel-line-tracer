@@ -1,0 +1,181 @@
+#include <avdweb_AnalogReadFast.h>
+
+// --- 모터 제어 핀 (L298N) ---
+// 오른쪽 모터 (모터A)
+const int ENA = 5; // PWM
+const int IN1 = 8;
+const int IN2 = 9;
+
+// 왼쪽 모터 (모터B)
+const int ENB = 6; // PWM
+const int IN3 = 10;
+const int IN4 = 11;
+
+// --- 센서 핀 (A1~A5, 센서 확장실드 4.0) ---
+const int sensorPins[5] = {A1, A2, A3, A4, A5};
+int sensorValues[5];
+
+// --- 모터 속도 및 회전 관련 상수 ---
+#define BASE_SPEED 255 // 기본 속도 (0~255)
+#define TURN_SPEED 150 // 회전 속도
+#define CENTER_SENSOR_IDX 2 // 중앙 센서 인덱스 (A3)
+#define CENTER_THRESHOLD 520 // 센서 임계값 (환경에 맞게 조정)
+#define MAX_TURN_TIME 100 // 회전 최대 시간(ms)
+#define SHARP_TURN_TIME 30 // 급회전 최대 시간(ms)
+#define NORMAL_TURN_TIME 80 // 일반 회전 최대 시간(ms)
+
+void setup() {
+Serial.begin(115200);
+
+// 모터 제어 핀 설정
+pinMode(ENA, OUTPUT);
+pinMode(IN1, OUTPUT);
+pinMode(IN2, OUTPUT);
+
+pinMode(ENB, OUTPUT);
+pinMode(IN3, OUTPUT);
+pinMode(IN4, OUTPUT);
+
+// 센서 핀 입력 설정
+for (int i = 0; i < 5; i++) {
+pinMode(sensorPins[i], INPUT);
+}
+stopMotors();
+delay(500);
+}
+
+// --- 센서값 읽기 및 출력 (아날로그 값 기반, 임계값 적용) ---
+void readSensors() {
+for (int i = 0; i < 5; i++) {
+int analogValue = analogReadFast(sensorPins[i]);
+sensorValues[i] = (analogValue > CENTER_THRESHOLD) ? 1 : 0;
+}
+}
+
+// --- 모터 제어 함수 ---
+// direction: 1 = FORWARD, 0 = BACKWARD
+void setMotorR(int speed, int direction) {
+analogWrite(ENA, abs(speed));
+if (speed == 0) {
+digitalWrite(IN1, LOW);
+digitalWrite(IN2, LOW);
+} else if (direction == 1) {
+digitalWrite(IN1, HIGH);
+digitalWrite(IN2, LOW);
+} else {
+digitalWrite(IN1, LOW);
+digitalWrite(IN2, HIGH);
+}
+}
+
+void setMotorL(int speed, int direction) {
+analogWrite(ENB, abs(speed));
+if (speed == 0) {
+digitalWrite(IN3, LOW);
+digitalWrite(IN4, LOW);
+} else if (direction == 1) {
+digitalWrite(IN3, HIGH);
+digitalWrite(IN4, LOW);
+} else {
+digitalWrite(IN3, LOW);
+digitalWrite(IN4, HIGH);
+}
+}
+
+// --- 전진: 두 모터 모두 앞으로 ---
+void moveForward() {
+setMotorL(BASE_SPEED, 1);
+setMotorR(BASE_SPEED, 1);
+}
+
+// --- 좌회전: 왼쪽 모터 후진, 오른쪽 모터 전진 ---
+void turnLeft() {
+setMotorL(TURN_SPEED, 0);
+setMotorR(TURN_SPEED, 1);
+
+unsigned long startTime = millis();
+while (millis() - startTime < NORMAL_TURN_TIME) {
+int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
+if (centerSensor > CENTER_THRESHOLD) break;
+}
+stopMotors();
+}
+
+// --- 우회전: 왼쪽 모터 전진, 오른쪽 모터 후진 ---
+void turnRight() {
+setMotorL(TURN_SPEED, 1);
+setMotorR(TURN_SPEED, 0);
+
+unsigned long startTime = millis();
+while (millis() - startTime < NORMAL_TURN_TIME) {
+int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
+if (centerSensor > CENTER_THRESHOLD) break;
+}
+stopMotors();
+}
+
+// --- 급좌회전: 왼쪽 모터 정지, 오른쪽 모터 전진 ---
+void sharpLeft() {
+setMotorL(0, 1);
+setMotorR(TURN_SPEED, 1);
+
+unsigned long startTime = millis();
+while (millis() - startTime < SHARP_TURN_TIME) {
+int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
+if (centerSensor > CENTER_THRESHOLD) break;
+}
+stopMotors();
+}
+
+// --- 급우회전: 왼쪽 모터 전진, 오른쪽 모터 정지 ---
+void sharpRight() {
+setMotorL(TURN_SPEED, 1);
+setMotorR(0, 1);
+
+unsigned long startTime = millis();
+while (millis() - startTime < SHARP_TURN_TIME) {
+int centerSensor = analogReadFast(sensorPins[CENTER_SENSOR_IDX]);
+if (centerSensor > CENTER_THRESHOLD) break;
+}
+stopMotors();
+}
+
+// --- 정지 ---
+void stopMotors() {
+setMotorL(0, 1);
+setMotorR(0, 1);
+}
+
+void loop() {
+readSensors();
+
+// 센서별 가중치
+int weights[5] = {-2, -1, 0, 1, 2};
+int sum = 0;
+int count = 0;
+
+for(int i = 0; i < 5; i++) {
+if(sensorValues[i] == 1) {
+sum += weights[i];
+count++;
+}
+}
+
+if(count == 0) {
+stopMotors();
+} else {
+float avg = (float)sum / count;
+if(avg < -1.5) {
+sharpLeft();
+} else if(avg < -0.5) {
+turnLeft();
+} else if(avg > 1.5) {
+sharpRight();
+} else if(avg > 0.5) {
+turnRight();
+} else {
+moveForward();
+}
+}
+delay(1);
+}
