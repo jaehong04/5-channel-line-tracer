@@ -1,3 +1,5 @@
+#include <Servo.h>
+
 // --- 모터 제어 핀 (L298N Motor Shield) ---
 const int ENA = 3;   // PWM
 const int ENB = 4;   // PWM
@@ -10,13 +12,35 @@ const int IN4 = 8;
 const int sensorPins[5] = {9, 10, 11, 12, 13};
 int sensorValues[5];
 
+// --- 초음파 센서 핀 ---
+const int TRIG_PIN = A0;  // 송신(Trigger)
+const int ECHO_PIN = A1;  // 수신(Echo)
+
+// --- 서보모터 핀 ---
+const int SERVO_PIN = A2;
+Servo myServo;
+
+// --- 장애물 감지 기준 거리 (cm) ---
+#define OBSTACLE_DISTANCE 15
+
 // --- 모터 속도 및 회전 관련 상수 ---
 #define BASE_SPEED 255 // 기본 속도 (0~255)
 #define TURN_SPEED 240 // 회전 속도
 #define CENTER_SENSOR_IDX 2 // 중앙 센서 인덱스 (3번째 센서)
 #define MAX_TURN_TIME 100 // 회전 최대 시간(ms)
 #define SHARP_TURN_TIME 30 // 급회전 최대 시간(ms)
-#define NORMAL_TURN_TIME 80 // 일반 회전 최대 시간(ms)
+#define NORMAL_TURN_TIME 70 // 일반 회전 최대 시간(ms)
+
+// --- 장애물 감지 횟수 저장 변수 ---
+int obstacleCount = 0;
+bool obstacleHandled = false;
+
+// --- 소프트웨어 노이즈 필터 변수 ---
+int lostLineCount = 0; // 라인 상실 연속 횟수
+const int LOST_LINE_THRESHOLD = 5; // 연속 5회 모두 0이면 진짜 멈춤
+
+// --- 회피 중 플래그 ---
+bool isAvoiding = false;
 
 void setup() {
     Serial.begin(115200);
@@ -33,17 +57,41 @@ void setup() {
     for (int i = 0; i < 5; i++) {
         pinMode(sensorPins[i], INPUT);
     }
+
+    // 초음파 센서 핀 설정
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+
+    // 서보모터 연결 및 초기 위치 설정
+    myServo.attach(SERVO_PIN);
+    myServo.write(90); // 기본 위치(90도)
+
     stopMotors();
     delay(500);
+}
+
+// --- 초음파 센서 거리 측정 함수 (cm 단위) ---
+float getDistanceCM() {
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    long duration = pulseIn(ECHO_PIN, HIGH, 30000); // 타임아웃 30ms(약 5m)
+    if (duration == 0) return -1; // 신호 없음
+    float distance = duration * 0.034 / 2.0;
+    return distance;
 }
 
 // --- 적외선 센서값 읽기 및 출력 (디지털 값 기반) ---
 void readSensors() {
     for (int i = 0; i < 5; i++) {
         sensorValues[i] = digitalRead(sensorPins[i]);
-        // 필요에 따라 센서값 반전(검정이 1, 흰색이 0 등) 가능
-        // sensorValues[i] = !digitalRead(sensorPins[i]);
+        Serial.print(sensorValues[i]);
+        Serial.print(" ");
     }
+    Serial.println();
 }
 
 // --- 모터 제어 함수 ---
@@ -140,35 +188,146 @@ void stopMotors() {
     setMotorR(0, 1);
 }
 
+// --- 라인 복귀: 중앙센서가 라인을 찾을 때까지 전진 ---
+void recoverToLine() {
+    Serial.println("recoverToLine() 진입");
+    unsigned long startTime = millis();
+    while (true) {
+        readSensors();
+        if (sensorValues[CENTER_SENSOR_IDX] == 1) break;
+        moveForward();
+        delay(10);
+        // 안전장치: 7초 이상 못찾으면 정지
+        if (millis() - startTime > 7000) {
+            stopMotors();
+            Serial.println("라인 미발견, 정지");
+            break;
+        }
+    }
+    stopMotors();
+    delay(200);
+}
+
+// --- 장애물 우회: 우회전(오른쪽) → 전진 → 좌회전(왼쪽) → 라인복귀 ---
+void avoidObstacleRight() {
+    isAvoiding = true;
+    Serial.println("우회전 회피 진입");
+    setMotorL(TURN_SPEED, 1);
+    setMotorR(TURN_SPEED, 0);
+    delay(400); // 우회전
+    stopMotors();
+    delay(100);
+
+    moveForward();
+    delay(1000); // 전진
+    stopMotors();
+    delay(100);
+
+    setMotorL(TURN_SPEED, 0);
+    setMotorR(TURN_SPEED, 1);
+    delay(400); // 좌회전
+    stopMotors();
+    delay(100);
+
+    recoverToLine();
+    isAvoiding = false;
+}
+
+// --- 장애물 좌회: 좌회전(왼쪽) → 전진 → 우회전(오른쪽) → 라인복귀 ---
+void avoidObstacleLeft() {
+    isAvoiding = true;
+    Serial.println("좌회전 회피 진입");
+    setMotorL(TURN_SPEED, 0);
+    setMotorR(TURN_SPEED, 1);
+    delay(400); // 좌회전
+    stopMotors();
+    delay(100);
+
+    moveForward();
+    delay(1000); // 전진
+    stopMotors();
+    delay(100);
+
+    setMotorL(TURN_SPEED, 1);
+    setMotorR(TURN_SPEED, 0);
+    delay(400); // 우회전
+    stopMotors();
+    delay(100);
+
+    recoverToLine();
+    isAvoiding = false;
+}
+
 void loop() {
+    // --- 초음파 거리 측정 및 장애물 감지 ---
+    float distance = getDistanceCM();
+
+    // 장애물 감지 및 처리(최대 3회)
+    if (distance > 0 && distance <= OBSTACLE_DISTANCE && obstacleCount < 3 && !obstacleHandled) {
+        stopMotors();
+
+        if (obstacleCount == 0) {
+            Serial.println("첫 번째 장애물! 5초 정지 후 서보 110도");
+            delay(500);
+            delay(5000);
+            myServo.write(115);
+            delay(800);
+        } else if (obstacleCount == 1) {
+            Serial.println("두 번째 장애물! 서보 70도 및 우회전 회피");
+            myServo.write(65);
+            delay(800);
+            avoidObstacleRight();
+        } else if (obstacleCount == 2) {
+            Serial.println("세 번째 장애물! 서보 150도 및 좌회전 회피");
+            myServo.write(90);
+            delay(800);
+            avoidObstacleLeft();
+        }
+        obstacleHandled = true;
+        obstacleCount++;
+    }
+
+    // 장애물 감지 해제(멀어지면 다시 감지 가능)
+    if (distance > OBSTACLE_DISTANCE + 3) {
+        obstacleHandled = false;
+    }
+
+    // --- 라인트레이싱 로직 ---
     readSensors();
 
-    // 센서별 가중치
     int weights[5] = {-2, -1, 0, 1, 2};
     int sum = 0;
     int count = 0;
 
     for(int i = 0; i < 5; i++) {
-        if(sensorValues[i] == 1) { // 검정(라인)이 감지된 경우
+        if(sensorValues[i] == 1) {
             sum += weights[i];
             count++;
         }
     }
 
-    if(count == 0) {
-        stopMotors();
-    } else {
-        float avg = (float)sum / count;
-        if(avg < -1.5) {
-            sharpLeft();
-        } else if(avg < -0.5) {
-            turnLeft();
-        } else if(avg > 1.5) {
-            sharpRight();
-        } else if(avg > 0.5) {
-            turnRight();
+    // --- 소프트웨어 노이즈 필터 적용 (회피 중엔 동작 안함) ---
+    if(!isAvoiding) {
+        if(count == 0) {
+            lostLineCount++;
+            if(lostLineCount >= LOST_LINE_THRESHOLD) {
+                stopMotors();
+                Serial.println("라인 완전 상실, 정지");
+            }
         } else {
-            moveForward();
+            lostLineCount = 0;
+            float avg = (float)sum / count;
+            if(avg < -1.5) {
+                sharpLeft();
+            } else if(avg < -0.5) {
+                turnLeft();
+            } else if(avg > 1.5) {
+                sharpRight();
+            } else if(avg > 0.5) {
+                turnRight();
+            } else {
+                moveForward();
+            }
         }
     }
     delay(1);
